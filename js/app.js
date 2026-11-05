@@ -216,20 +216,7 @@ new MutationObserver(ms=>{if(!LANGEN)return;ms.forEach(m=>m.addedNodes.forEach(n
 /* ---- connection / sync indicator (UI only; real sync needs Supabase) ---- */
 function netUp(){const e=$g("#net");e.textContent=navigator.onLine?"🟢 متصل":"🔴 غير متصل";e.title="حالة الاتصال والمزامنة"}
 addEventListener("online",netUp);addEventListener("offline",netUp);
-function syncPage(){
-  const isSupa = !!(window.FM_Supabase && localStorage.getItem('sb_publishable_key'));
-  const conn = navigator.onLine ? "🟢 متصل" : "🔴 غير متصل";
-  const storageMode = isSupa ? "محلي + سحابي (Supabase) مع طابور Offline" : "محلي على هذا الجهاز فقط (Demo)";
-  const syncStatus = isSupa ? "🟢 مفعّلة — Supabase متصل" : "غير مفعّلة — تحتاج Backend فعلي (Supabase)";
-  const c=[["فواتير ومرتجعات",S.docs.length],["سندات قبض ودفع",S.vch.length],["أوامر إنتاج",S.po.length],["قيود يومية",S.je.length],["أصناف",S.items.length],["عملاء وموردون",S.partners.length],["هالك مخزون",S.wo.length]];
-  sh(`<div class="ph"><h3>حالة الاتصال والمزامنة</h3>${bk}</div><div class="card">
-  <p>الاتصال: <b>${conn}</b></p>
-  <p>وضع التخزين: <b>${storageMode}</b></p>
-  <p>المزامنة مع الخادم: <b>${syncStatus}</b></p>
-  <p>تغييرات محلية محفوظة منذ بداية الاستخدام: <b>${S.pend||0}</b></p>
-  ${isSupa?`<p><button class="new" onclick="FM_Supabase.syncQueue()">🔄 مزامنة الآن</button> <span id="sync-indicator">جاهز</span></p><p class="mu">المشروع: ${'https://kkigcqkjsdsbwkxlvdbb.supabase.co'}</p>`:''}
-  </div><table class="l"><tr><th>العملية</th><th>العدد المحلي</th><th>تحتاج مزامنة</th></tr>${U(c,x=>`<tr><td>${x[0]}</td><td>${x[1]}</td><td>${isSupa?'جاهز للرفع':'عند ربط Supabase'}</td></tr>`)}</table><p class="mu">${isSupa?'العمل بدون إنترنت يحفظ العمليات في IndexedDB + طابور محلي ثم يرفعها تلقائياً عند عودة الاتصال مع Idempotency Keys لمنع التكرار.':'عند الربط: العمل بدون إنترنت يحفظ العمليات في طابور محلي ثم يرفعها تلقائياً عند عودة الاتصال مع حل التعارضات.'}</p>`);
-}
+function syncPage(){const c=[["فواتير ومرتجعات",S.docs.length],["سندات قبض ودفع",S.vch.length],["أوامر إنتاج",S.po.length],["قيود يومية",S.je.length],["أصناف",S.items.length],["عملاء وموردون",S.partners.length],["هالك مخزون",S.wo.length]];sh(`<div class="ph"><h3>حالة الاتصال والمزامنة</h3>${bk}</div><div class="card"><p>الاتصال: <b>${navigator.onLine?"🟢 متصل":"🔴 غير متصل"}</b></p><p>وضع التخزين: <b>محلي على هذا الجهاز فقط (Demo)</b></p><p>المزامنة مع الخادم: <b>غير مفعّلة — تحتاج Backend فعلي (Supabase)</b></p><p>تغييرات محلية محفوظة منذ بداية الاستخدام: <b>${S.pend||0}</b></p></div><table class="l"><tr><th>العملية</th><th>العدد المحلي</th><th>تحتاج مزامنة</th></tr>${U(c,x=>`<tr><td>${x[0]}</td><td>${x[1]}</td><td>عند ربط Supabase</td></tr>`)}</table><p class="mu">عند الربط: العمل بدون إنترنت يحفظ العمليات في طابور محلي ثم يرفعها تلقائيًا عند عودة الاتصال مع حل التعارضات. هذه الصفحة تعرض المؤشرات وتجربة الاستخدام فقط ولا تنفذ مزامنة فعلية.</p>`)}
 /* ---- tabbed workspace ---- */
 function newTab(kind,sid,title){const el=document.createElement("div");el.style.display="none";$g("#m").appendChild(el);const t={id:uid(),kind,sid,title,el,dirty:0,form:0,st:null};const mark=()=>{if(t.form&&!t.dirty){t.dirty=1;drawTabs()}};el.addEventListener("input",mark);el.addEventListener("change",mark);TB.push(t);return t}
 const gst=()=>({D,PS,V,J,IM,idImg,LB,WZ}),sst=o=>{({D,PS,V,J,IM,idImg,LB,WZ}=o)};
