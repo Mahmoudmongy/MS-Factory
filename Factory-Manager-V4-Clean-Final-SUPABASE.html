@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f766e">
-<title>مدير المصنع - نسخة نظيفة نهائية</title>
+<title>مدير المصنع - نسخة نهائية بدون CDN</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--tx:#14202b;--mu:#667685;--pr:#0f766e;--pr2:#e0f2f0;--bd:#dde3e9;--rd:#c0392b;--sb:#1f2d3a;--sb2:#2b3d4d;--sb-text:#cfd8e0;--shadow:0 4px 20px rgba(0,0,0,.08);--radius:10px}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10171d;--card:#18222b;--tx:#e8eef3;--mu:#8fa1af;--pr:#2dd4bf;--pr2:#16342f;--bd:#27343f;--rd:#f08a7e;--sb:#0f1a23;--sb2:#1a2a38}}
@@ -75,11 +75,10 @@ table.l th{background:var(--pr2);color:var(--tx)}
 <body>
 <div id="sync-indicator" style="position:fixed;top:5px;left:10px;z-index:9999;background:#fff;padding:4px 8px;border-radius:8px;font-size:12px;border:1px solid #ddd">🟢 متصل</div>
 <div id="app"><div id="sb-overlay" onclick="closeSB()"></div><aside id="sb"></aside><div id="cn"><div id="top"><button id="bg" onclick="document.getElementById('sb').classList.toggle('open');document.getElementById('sb-overlay').style.display=document.getElementById('sb').classList.contains('open')?'block':'none'">☰</button><button onclick="bkw(-1)">▶</button><button onclick="bkw(1)">◀</button><h1 id="ttl"></h1><span id="net" onclick="syncPage()"></span><select id="who" onchange="swho(this.value)"></select><button onclick="togTheme()">🌓</button><button onclick="togLang()">🌐</button></div><div id="tabs"></div><main id="m"></main></div></div><div id="toast"></div><div id="pr" style="display:none"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
-// supabase.js - Real offline + sync, preserves old shape
 const SUPABASE_URL = 'https://kkigcqkjsdsbwkxlvdbb.supabase.co';
 let SUPABASE_KEY = localStorage.getItem('sb_publishable_key') || 'sb_publishable_UoB-U4hKdZIo8Mjochzo4g_-pty5ySV';
+if(!localStorage.getItem('sb_publishable_key')) localStorage.setItem('sb_publishable_key', SUPABASE_KEY);
 
 function setSupabaseKey(k){ 
   SUPABASE_KEY = k; 
@@ -87,22 +86,56 @@ function setSupabaseKey(k){
   initSupabase();
 }
 
-let sb = null;
-function initSupabase(){
-  if(!SUPABASE_URL || !SUPABASE_KEY){ console.log('Supabase key not set'); return; }
-  // load supabase-js via CDN if not loaded
-  if(window.supabase && window.supabase.createClient){
-    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('Supabase initialized');
-  } else {
-    const s=document.createElement('script');
-    s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';
-    s.onload=()=>{ sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); console.log('Supabase initialized via CDN'); };
-    document.head.appendChild(s);
+let sb = { ready: false };
+
+async function sbFetch(table, method='GET', body=null, query=''){
+  const url = `${SUPABASE_URL}/rest/v1/${table}${query}`;
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation'
+  };
+  const opts = { method, headers };
+  if(body) opts.body = JSON.stringify(body);
+  try{
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(()=>null);
+    if(!res.ok) return { error: data, data: null };
+    return { data, error: null };
+  }catch(e){
+    return { error: e.message, data: null };
   }
 }
 
-// IndexedDB wrapper for offline queue
+function initSupabase(){
+  if(!SUPABASE_URL || !SUPABASE_KEY){ console.log('Supabase key not set'); return; }
+  sb.ready = true;
+  sb.from = (table) => ({
+    select: (cols='*') => ({
+      eq: (col, val) => ({
+        single: async () => {
+          return await sbFetch(table, 'GET', null, `?${col}=eq.${encodeURIComponent(val)}&limit=1`);
+        }
+      }),
+      single: async () => {
+        return await sbFetch(table, 'GET', null, '?limit=1');
+      }
+    }),
+    insert: async (payload) => {
+      return await sbFetch(table, 'POST', payload);
+    },
+    update: (payload) => ({
+      eq: (col, val) => sbFetch(table, 'PATCH', payload, `?${col}=eq.${encodeURIComponent(val)}`)
+    }),
+    delete: () => ({
+      eq: (col, val) => sbFetch(table, 'DELETE', null, `?${col}=eq.${encodeURIComponent(val)}`)
+    })
+  });
+  console.log('✅ Supabase initialized (fetch mode) - no CDN needed');
+  updateSyncStatus('online');
+}
+
 const IDB_NAME='factory_mgr_offline';
 const IDB_VER=1;
 function openDB(){
@@ -134,20 +167,18 @@ async function enqueue(table_name, op, payload){
     idempotency_key,
     created_at: new Date().toISOString()
   };
-  // save to IDB
   const db=await openDB();
   await new Promise((res,rej)=>{
     const tx=db.transaction('queue','readwrite');
     tx.objectStore('queue').add(entry);
     tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
   });
-  // also try immediate sync if online
   if(navigator.onLine) syncQueue();
   return idempotency_key;
 }
 
 async function syncQueue(){
-  if(!sb){ console.log('sb not ready'); return; }
+  if(!sb.ready){ console.log('sb not ready'); return; }
   if(!navigator.onLine){ updateSyncStatus('offline'); return; }
   const db=await openDB();
   const pending = await new Promise((res)=>{
@@ -160,14 +191,11 @@ async function syncQueue(){
   updateSyncStatus('syncing');
   for(const item of pending){
     try{
-      // check idempotency on server
       const {data: existing} = await sb.from('idempotency_keys').select('key').eq('key', item.idempotency_key).single();
-      if(existing){ 
-        // already done
+      if(existing && existing.data && existing.data.length){ 
         await markDone(item.id);
         continue;
       }
-      // perform op
       let result;
       if(item.op==='insert'){
         result = await sb.from(item.table_name).insert(item.payload);
@@ -177,12 +205,11 @@ async function syncQueue(){
         result = await sb.from(item.table_name).delete().eq('id', item.payload.id);
       }
       if(result.error) throw result.error;
-      // save idempotency
       await sb.from('idempotency_keys').insert({key: item.idempotency_key, response: {ok:true}});
       await markDone(item.id);
     }catch(e){
       console.error('sync failed', e);
-      await markFailed(item.id, e.message);
+      await markFailed(item.id, e.message||String(e));
     }
   }
   updateSyncStatus('online');
@@ -225,12 +252,10 @@ function updateSyncStatus(st){
   }
 }
 
-// Auto sync on online/offline
 window.addEventListener('online', ()=>{ updateSyncStatus('online'); syncQueue(); });
 window.addEventListener('offline', ()=>{ updateSyncStatus('offline'); });
 
-// expose
-window.FM_Supabase = { initSupabase, setSupabaseKey, enqueue, syncQueue, openDB };
+window.FM_Supabase = { initSupabase, setSupabaseKey, enqueue, syncQueue, openDB, sbFetch };
 document.addEventListener('DOMContentLoaded', initSupabase);
 </script>
 <script>
@@ -451,20 +476,7 @@ new MutationObserver(ms=>{if(!LANGEN)return;ms.forEach(m=>m.addedNodes.forEach(n
 /* ---- connection / sync indicator (UI only; real sync needs Supabase) ---- */
 function netUp(){const e=$g("#net");e.textContent=navigator.onLine?"🟢 متصل":"🔴 غير متصل";e.title="حالة الاتصال والمزامنة"}
 addEventListener("online",netUp);addEventListener("offline",netUp);
-function syncPage(){
-  const isSupa = !!(window.FM_Supabase && localStorage.getItem('sb_publishable_key'));
-  const conn = navigator.onLine ? "🟢 متصل" : "🔴 غير متصل";
-  const storageMode = isSupa ? "محلي + سحابي (Supabase) مع طابور Offline" : "محلي على هذا الجهاز فقط (Demo)";
-  const syncStatus = isSupa ? "🟢 مفعّلة — Supabase متصل" : "غير مفعّلة — تحتاج Backend فعلي (Supabase)";
-  const c=[["فواتير ومرتجعات",S.docs.length],["سندات قبض ودفع",S.vch.length],["أوامر إنتاج",S.po.length],["قيود يومية",S.je.length],["أصناف",S.items.length],["عملاء وموردون",S.partners.length],["هالك مخزون",S.wo.length]];
-  sh(`<div class="ph"><h3>حالة الاتصال والمزامنة</h3>${bk}</div><div class="card">
-  <p>الاتصال: <b>${conn}</b></p>
-  <p>وضع التخزين: <b>${storageMode}</b></p>
-  <p>المزامنة مع الخادم: <b>${syncStatus}</b></p>
-  <p>تغييرات محلية محفوظة منذ بداية الاستخدام: <b>${S.pend||0}</b></p>
-  ${isSupa?`<p><button class="new" onclick="FM_Supabase.syncQueue()">🔄 مزامنة الآن</button> <span id="sync-indicator">جاهز</span></p><p class="mu">المشروع: ${'https://kkigcqkjsdsbwkxlvdbb.supabase.co'}</p>`:''}
-  </div><table class="l"><tr><th>العملية</th><th>العدد المحلي</th><th>تحتاج مزامنة</th></tr>${U(c,x=>`<tr><td>${x[0]}</td><td>${x[1]}</td><td>${isSupa?'جاهز للرفع':'عند ربط Supabase'}</td></tr>`)}</table><p class="mu">${isSupa?'العمل بدون إنترنت يحفظ العمليات في IndexedDB + طابور محلي ثم يرفعها تلقائياً عند عودة الاتصال مع Idempotency Keys لمنع التكرار.':'عند الربط: العمل بدون إنترنت يحفظ العمليات في طابور محلي ثم يرفعها تلقائياً عند عودة الاتصال مع حل التعارضات.'}</p>`);
-}
+function syncPage(){const c=[["فواتير ومرتجعات",S.docs.length],["سندات قبض ودفع",S.vch.length],["أوامر إنتاج",S.po.length],["قيود يومية",S.je.length],["أصناف",S.items.length],["عملاء وموردون",S.partners.length],["هالك مخزون",S.wo.length]];sh(`<div class="ph"><h3>حالة الاتصال والمزامنة</h3>${bk}</div><div class="card"><p>الاتصال: <b>${navigator.onLine?"🟢 متصل":"🔴 غير متصل"}</b></p><p>وضع التخزين: <b>محلي على هذا الجهاز فقط (Demo)</b></p><p>المزامنة مع الخادم: <b>غير مفعّلة — تحتاج Backend فعلي (Supabase)</b></p><p>تغييرات محلية محفوظة منذ بداية الاستخدام: <b>${S.pend||0}</b></p></div><table class="l"><tr><th>العملية</th><th>العدد المحلي</th><th>تحتاج مزامنة</th></tr>${U(c,x=>`<tr><td>${x[0]}</td><td>${x[1]}</td><td>عند ربط Supabase</td></tr>`)}</table><p class="mu">عند الربط: العمل بدون إنترنت يحفظ العمليات في طابور محلي ثم يرفعها تلقائيًا عند عودة الاتصال مع حل التعارضات. هذه الصفحة تعرض المؤشرات وتجربة الاستخدام فقط ولا تنفذ مزامنة فعلية.</p>`)}
 /* ---- tabbed workspace ---- */
 function newTab(kind,sid,title){const el=document.createElement("div");el.style.display="none";$g("#m").appendChild(el);const t={id:uid(),kind,sid,title,el,dirty:0,form:0,st:null};const mark=()=>{if(t.form&&!t.dirty){t.dirty=1;drawTabs()}};el.addEventListener("input",mark);el.addEventListener("change",mark);TB.push(t);return t}
 const gst=()=>({D,PS,V,J,IM,idImg,LB,WZ}),sst=o=>{({D,PS,V,J,IM,idImg,LB,WZ}=o)};

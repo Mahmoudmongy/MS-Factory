@@ -1,7 +1,7 @@
 
-// supabase.js - Real offline + sync, preserves old shape
 const SUPABASE_URL = 'https://kkigcqkjsdsbwkxlvdbb.supabase.co';
 let SUPABASE_KEY = localStorage.getItem('sb_publishable_key') || 'sb_publishable_UoB-U4hKdZIo8Mjochzo4g_-pty5ySV';
+if(!localStorage.getItem('sb_publishable_key')) localStorage.setItem('sb_publishable_key', SUPABASE_KEY);
 
 function setSupabaseKey(k){ 
   SUPABASE_KEY = k; 
@@ -9,22 +9,56 @@ function setSupabaseKey(k){
   initSupabase();
 }
 
-let sb = null;
-function initSupabase(){
-  if(!SUPABASE_URL || !SUPABASE_KEY){ console.log('Supabase key not set'); return; }
-  // load supabase-js via CDN if not loaded
-  if(window.supabase && window.supabase.createClient){
-    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('Supabase initialized');
-  } else {
-    const s=document.createElement('script');
-    s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';
-    s.onload=()=>{ sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); console.log('Supabase initialized via CDN'); };
-    document.head.appendChild(s);
+let sb = { ready: false };
+
+async function sbFetch(table, method='GET', body=null, query=''){
+  const url = `${SUPABASE_URL}/rest/v1/${table}${query}`;
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation'
+  };
+  const opts = { method, headers };
+  if(body) opts.body = JSON.stringify(body);
+  try{
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(()=>null);
+    if(!res.ok) return { error: data, data: null };
+    return { data, error: null };
+  }catch(e){
+    return { error: e.message, data: null };
   }
 }
 
-// IndexedDB wrapper for offline queue
+function initSupabase(){
+  if(!SUPABASE_URL || !SUPABASE_KEY){ console.log('Supabase key not set'); return; }
+  sb.ready = true;
+  sb.from = (table) => ({
+    select: (cols='*') => ({
+      eq: (col, val) => ({
+        single: async () => {
+          return await sbFetch(table, 'GET', null, `?${col}=eq.${encodeURIComponent(val)}&limit=1`);
+        }
+      }),
+      single: async () => {
+        return await sbFetch(table, 'GET', null, '?limit=1');
+      }
+    }),
+    insert: async (payload) => {
+      return await sbFetch(table, 'POST', payload);
+    },
+    update: (payload) => ({
+      eq: (col, val) => sbFetch(table, 'PATCH', payload, `?${col}=eq.${encodeURIComponent(val)}`)
+    }),
+    delete: () => ({
+      eq: (col, val) => sbFetch(table, 'DELETE', null, `?${col}=eq.${encodeURIComponent(val)}`)
+    })
+  });
+  console.log('✅ Supabase initialized (fetch mode) - no CDN needed');
+  updateSyncStatus('online');
+}
+
 const IDB_NAME='factory_mgr_offline';
 const IDB_VER=1;
 function openDB(){
@@ -56,20 +90,18 @@ async function enqueue(table_name, op, payload){
     idempotency_key,
     created_at: new Date().toISOString()
   };
-  // save to IDB
   const db=await openDB();
   await new Promise((res,rej)=>{
     const tx=db.transaction('queue','readwrite');
     tx.objectStore('queue').add(entry);
     tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
   });
-  // also try immediate sync if online
   if(navigator.onLine) syncQueue();
   return idempotency_key;
 }
 
 async function syncQueue(){
-  if(!sb){ console.log('sb not ready'); return; }
+  if(!sb.ready){ console.log('sb not ready'); return; }
   if(!navigator.onLine){ updateSyncStatus('offline'); return; }
   const db=await openDB();
   const pending = await new Promise((res)=>{
@@ -82,14 +114,11 @@ async function syncQueue(){
   updateSyncStatus('syncing');
   for(const item of pending){
     try{
-      // check idempotency on server
       const {data: existing} = await sb.from('idempotency_keys').select('key').eq('key', item.idempotency_key).single();
-      if(existing){ 
-        // already done
+      if(existing && existing.data && existing.data.length){ 
         await markDone(item.id);
         continue;
       }
-      // perform op
       let result;
       if(item.op==='insert'){
         result = await sb.from(item.table_name).insert(item.payload);
@@ -99,12 +128,11 @@ async function syncQueue(){
         result = await sb.from(item.table_name).delete().eq('id', item.payload.id);
       }
       if(result.error) throw result.error;
-      // save idempotency
       await sb.from('idempotency_keys').insert({key: item.idempotency_key, response: {ok:true}});
       await markDone(item.id);
     }catch(e){
       console.error('sync failed', e);
-      await markFailed(item.id, e.message);
+      await markFailed(item.id, e.message||String(e));
     }
   }
   updateSyncStatus('online');
@@ -147,10 +175,8 @@ function updateSyncStatus(st){
   }
 }
 
-// Auto sync on online/offline
 window.addEventListener('online', ()=>{ updateSyncStatus('online'); syncQueue(); });
 window.addEventListener('offline', ()=>{ updateSyncStatus('offline'); });
 
-// expose
-window.FM_Supabase = { initSupabase, setSupabaseKey, enqueue, syncQueue, openDB };
+window.FM_Supabase = { initSupabase, setSupabaseKey, enqueue, syncQueue, openDB, sbFetch };
 document.addEventListener('DOMContentLoaded', initSupabase);
