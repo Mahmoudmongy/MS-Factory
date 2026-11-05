@@ -1,0 +1,25 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>اختبارات مدير المصنع</title><style>body{font-family:Arial,sans-serif;padding:18px;background:#f4f6f8}li{padding:8px;border-bottom:1px solid #ddd}.pass{color:#087a38}.fail{color:#b42318}iframe{width:100%;height:600px;border:1px solid #aaa;background:white}</style></head><body><h1>فحص تشغيل مدير المصنع</h1><p>افتح الصفحة من خلال GitHub Pages أو خادم محلي، ثم انتظر تحميل النظام.</p><ol id="results"></ol><iframe id="app" src="./index.html"></iframe><script>
+const out=document.getElementById('results'),frame=document.getElementById('app');
+function add(name,ok,detail=''){const li=document.createElement('li');li.className=ok?'pass':'fail';li.textContent=(ok?'نجح: ':'فشل: ')+name+(detail?' — '+detail:'');out.appendChild(li);}
+frame.addEventListener('load',()=>setTimeout(()=>{
+ try{
+  const w=frame.contentWindow, d=frame.contentDocument;
+  const checks=[
+   ['تحميل واجهة النظام',!!d.querySelector('#app')&&!!d.querySelector('#m')],
+   ['تحميل ملف JavaScript',typeof w.go==='function'&&typeof w.render==='function'],
+   ['تحميل بيانات البداية',w.eval('Array.isArray(S.items) && Array.isArray(S.accts) && Array.isArray(S.partners)')],
+   ['وجود الأصناف التجريبية',w.eval('S.items.length>0')],
+   ['وجود الحسابات الأساسية',w.eval('S.accts.some(a=>a.k==="sales") && S.accts.some(a=>a.k==="inv")')],
+   ['توازن القيد الافتتاحي',w.eval('Math.abs(S.L.reduce((n,l)=>n+l.dr-l.cr,0))<0.001')],
+   ['وجود صفحات النظام',w.eval('["home","sale","pur","stock","prod","rep","set"].every(k=>!!SCR[k])')],
+   ['دوال القائمة للموبايل',typeof w.openSB==='function'&&typeof w.closeSB==='function'],
+   ['تخزين المتصفح',(()=>{try{w.localStorage.setItem('fm_test','1');const ok=w.localStorage.getItem('fm_test')==='1';w.localStorage.removeItem('fm_test');return ok}catch(e){return false}})()],
+   ['ملف PWA manifest',!!d.querySelector('link[rel="manifest"]')],
+   ['تسجيل Service Worker مدعوم', 'serviceWorker' in w.navigator],
+   ['عرض الصفحة الرئيسية',!!d.querySelector('#m .ph')||d.querySelector('#m').textContent.trim().length>0]
+  ];
+  checks.forEach(x=>add(x[0],!!x[1]));
+  add('ملاحظات مهمة',true,'الاختبارات دي فحص تشغيل أساسي وليست مراجعة محاسبية كاملة أو اختبار صلاحيات متعددة المستخدمين.');
+ }catch(e){add('تشغيل الاختبارات',false,e.message)}
+},900));
+</script></body></html>
