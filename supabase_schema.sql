@@ -1,8 +1,8 @@
 
--- Factory Manager V4 - Supabase Schema - Clean Version (Fixed)
--- Safe migration: no IF NOT EXISTS for policies
+-- Factory Manager V4 - Supabase Schema - Preserves original mgr6 structure
+-- Safe migration: creates tables if not exists, no data loss
 
--- 1. Core accounts
+-- 1. Core accounts (شجرة الحسابات)
 create table if not exists accts (
   id bigint primary key,
   code text not null,
@@ -11,13 +11,17 @@ create table if not exists accts (
   k text,
   cash boolean default false,
   cur text default 'EGP',
-  created_at timestamptz default now()
+  created_at timestamp with time zone default now()
 );
+
+-- 2. Warehouses (مخازن فرعية)
 create table if not exists wh (
   id bigint primary key,
   name text not null,
   created_at timestamptz default now()
 );
+
+-- 3. Items (أصناف)
 create table if not exists items (
   id bigint primary key,
   name text not null,
@@ -32,13 +36,17 @@ create table if not exists items (
   val numeric default 0,
   created_at timestamptz default now()
 );
+
+-- 4. Item stocks (لون/مقاس -> كمية)
 create table if not exists item_stocks (
   id bigserial primary key,
   item_id bigint references items(id) on delete cascade,
-  v text not null,
+  v text not null, -- "لون / مقاس"
   qty numeric default 0,
   unique(item_id, v)
 );
+
+-- 5. Barcodes (باركود ثابت لكل تركيبة)
 create table if not exists codes (
   id bigserial primary key,
   iid bigint references items(id) on delete cascade,
@@ -47,18 +55,22 @@ create table if not exists codes (
   created_at timestamptz default now(),
   unique(iid, v)
 );
+
+-- 6. Partners (عملاء/موردون)
 create table if not exists partners (
   id bigint primary key,
   name text not null,
   phone text,
-  c int default 0,
-  s int default 0,
+  c int default 0, -- عميل
+  s int default 0, -- مورد
   type text check (type in ('r','w')),
   gov text,
   city text,
   adr text,
   created_at timestamptz default now()
 );
+
+-- 7. Docs (فواتير بيع/شراء/مرتجعات)
 create table if not exists docs (
   id bigint primary key,
   t text check (t in ('sale','pur','sret','pret')),
@@ -67,13 +79,14 @@ create table if not exists docs (
   date date not null,
   ts bigint,
   cat text check (cat in ('mfg','sup')),
-  dest bigint,
+  dest bigint, -- أمر إنتاج للمشتريات
   total numeric default 0,
   disc numeric default 0,
   note text,
   img text,
   created_at timestamptz default now()
 );
+
 create table if not exists doc_lines (
   id bigserial primary key,
   doc_id bigint references docs(id) on delete cascade,
@@ -89,6 +102,8 @@ create table if not exists doc_lines (
   model text,
   barcode text
 );
+
+-- 8. Production Orders (أوامر إنتاج)
 create table if not exists po (
   id bigint primary key,
   no text not null unique,
@@ -97,24 +112,27 @@ create table if not exists po (
   iname text,
   wh bigint,
   desc_text text,
-  st int default 0,
+  st int default 0, -- 0 جديد 1 جاري 2 تم
   mat_cost numeric default 0,
   wc numeric default 0,
   done date,
   created_at timestamptz default now()
 );
+
 create table if not exists po_subs (
   id bigserial primary key,
   po_id bigint references po(id) on delete cascade,
   v text,
   qty numeric
 );
+
 create table if not exists po_rec (
   id bigserial primary key,
   po_id bigint references po(id) on delete cascade,
   v text,
   qty numeric
 );
+
 create table if not exists po_mats (
   id bigserial primary key,
   po_id bigint references po(id) on delete cascade,
@@ -122,6 +140,7 @@ create table if not exists po_mats (
   qty numeric,
   cost numeric
 );
+
 create table if not exists po_expenses (
   id bigserial primary key,
   po_id bigint references po(id) on delete cascade,
@@ -129,6 +148,8 @@ create table if not exists po_expenses (
   amt numeric,
   note text
 );
+
+-- 9. Vouchers (سندات قبض/دفع)
 create table if not exists vch (
   id bigint primary key,
   dir text check (dir in ('in','out')),
@@ -143,6 +164,7 @@ create table if not exists vch (
   img text,
   created_at timestamptz default now()
 );
+
 create table if not exists vch_ac (
   id bigserial primary key,
   vch_id bigint references vch(id) on delete cascade,
@@ -151,6 +173,7 @@ create table if not exists vch_ac (
   cur text default 'EGP',
   fx numeric default 1
 );
+
 create table if not exists vch_alloc (
   id bigserial primary key,
   vch_id bigint references vch(id) on delete cascade,
@@ -158,6 +181,8 @@ create table if not exists vch_alloc (
   amount numeric,
   unique(vch_id, doc_id)
 );
+
+-- 10. Journal Entries + Ledger (دفتر الأستاذ)
 create table if not exists je (
   id bigint primary key,
   no text unique,
@@ -166,6 +191,7 @@ create table if not exists je (
   desc_text text,
   created_at timestamptz default now()
 );
+
 create table if not exists ledger (
   id bigserial primary key,
   d date,
@@ -184,6 +210,8 @@ create table if not exists ledger (
 create index if not exists ledger_a_idx on ledger(a);
 create index if not exists ledger_pid_idx on ledger(pid);
 create index if not exists ledger_rid_idx on ledger(rid);
+
+-- 11. Stock movements (حركة مخزون)
 create table if not exists mv (
   id bigserial primary key,
   d date,
@@ -198,6 +226,8 @@ create table if not exists mv (
   src text
 );
 create index if not exists mv_iid_idx on mv(iid);
+
+-- 12. Employees
 create table if not exists emp (
   id bigint primary key,
   name text,
@@ -210,6 +240,8 @@ create table if not exists emp (
   img text,
   created_at timestamptz default now()
 );
+
+-- 13. Wastes (هالك)
 create table if not exists wo (
   id bigint primary key,
   ref text,
@@ -219,9 +251,11 @@ create table if not exists wo (
   ts bigint,
   created_at timestamptz default now()
 );
+
+-- 14. Offline Sync + Idempotency (حالة المزامنة)
 create table if not exists sync_queue (
   id bigserial primary key,
-  client_id text not null,
+  client_id text not null, -- uid local
   table_name text not null,
   op text check (op in ('insert','update','delete')),
   payload jsonb,
@@ -232,20 +266,24 @@ create table if not exists sync_queue (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
 create table if not exists idempotency_keys (
   key text primary key,
   response jsonb,
   created_at timestamptz default now()
 );
+
+-- 15. Currencies + Settings
 create table if not exists curs (
   code text primary key
 );
+
 create table if not exists settings (
   key text primary key,
   value jsonb
 );
 
--- RLS enable
+-- RLS: enable but allow anon for now (will tighten after auth)
 alter table accts enable row level security;
 alter table wh enable row level security;
 alter table items enable row level security;
@@ -270,19 +308,20 @@ alter table wo enable row level security;
 alter table sync_queue enable row level security;
 alter table idempotency_keys enable row level security;
 
--- Drop existing policies if exist, then create (Postgres doesn't support IF NOT EXISTS for policies)
+-- Policies: allow all for anon (demo), replace with auth.uid() later
 do $$ 
 declare t text;
 begin
   for t in select unnest(array['accts','wh','items','item_stocks','codes','partners','docs','doc_lines','po','po_subs','po_rec','po_mats','po_expenses','vch','vch_ac','vch_alloc','je','ledger','mv','emp','wo','sync_queue','idempotency_keys','curs','settings'])
   loop
-    execute format('drop policy if exists "allow all" on %I', t);
-    execute format('create policy "allow all" on %I for all using (true) with check (true)', t);
+    execute format('create policy if not exists "allow all" on %I for all using (true) with check (true)', t);
   end loop;
 end $$;
 
--- Seed
+-- Seed default currencies
 insert into curs(code) values ('EGP'),('USD'),('EUR'),('SAR') on conflict do nothing;
+
+-- Seed default accounts (same as seed())
 insert into accts(id,code,name,t,k,cash,cur) values
 (1,'1001','الخزنة','A','',true,'EGP'),
 (2,'1002','بنك','A','',true,'EGP'),
@@ -295,4 +334,5 @@ insert into accts(id,code,name,t,k,cash,cur) values
 (9,'4100','المبيعات','I','sales',false,'EGP'),
 (10,'5100','تكلفة المبيعات','X','cogs',false,'EGP')
 on conflict (id) do nothing;
+
 insert into wh(id,name) values (1,'قماش'),(2,'مستلزمات'),(3,'منتج نهائي') on conflict do nothing;
